@@ -1,13 +1,16 @@
 {
   "expo": {
-    "name": "clcode",
-    "slug": "clcode",
+    "name": "QR Shield",
+    "slug": "qr-shield",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSCameraUsageDescription": "QR Shield needs camera access to scan QR codes."
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -16,10 +19,19 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": ["android.permission.CAMERA"]
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "QR Shield needs camera access to scan QR codes."
+        }
+      ]
+    ]
   }
 }
