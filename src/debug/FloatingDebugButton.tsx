@@ -6,8 +6,9 @@ import DebugSettingsSheet from './DebugSettingsSheet';
 
 const BUTTON_SIZE = 52;
 const TAP_THRESHOLD = 4;
+const EDGE_MARGIN = 16;
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
-const START_X = SCREEN_WIDTH - BUTTON_SIZE - 16;
+const START_X = SCREEN_WIDTH - BUTTON_SIZE - EDGE_MARGIN;
 const START_Y = SCREEN_HEIGHT - BUTTON_SIZE - 160;
 
 function clamp(value: number, min: number, max: number) {
@@ -30,7 +31,12 @@ export default function FloatingDebugButton() {
       onStartShouldSetPanResponder: () => true,
       onPanResponderGrant: () => {
         totalMovement.current = 0;
-        dragStart.current = currentPosition.current;
+        // Stop any in-flight edge-snap animation and read back wherever it
+        // actually is, in case the button is grabbed mid-snap.
+        pan.stopAnimation((value) => {
+          dragStart.current = value;
+          currentPosition.current = value;
+        });
       },
       onPanResponderMove: (_event, gesture) => {
         totalMovement.current = Math.abs(gesture.dx) + Math.abs(gesture.dy);
@@ -45,10 +51,26 @@ export default function FloatingDebugButton() {
         // A short drag distance is a tap, not a drag — open the sheet.
         if (totalMovement.current < TAP_THRESHOLD) {
           setSheetOpen(true);
+        } else {
+          snapToNearestEdge();
         }
       },
     })
   ).current;
+
+  const snapToNearestEdge = () => {
+    const { x, y } = currentPosition.current;
+    const targetX =
+      x + BUTTON_SIZE / 2 < SCREEN_WIDTH / 2
+        ? EDGE_MARGIN
+        : SCREEN_WIDTH - BUTTON_SIZE - EDGE_MARGIN;
+    currentPosition.current = { x: targetX, y };
+    Animated.spring(pan, {
+      toValue: { x: targetX, y },
+      useNativeDriver: false,
+      friction: 6,
+    }).start();
+  };
 
   if (!buttonVisible) {
     return null;
