@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
+import { useDebugSettings } from '../debug/DebugSettingsContext';
 import type { RootStackParamList } from '../navigation/types';
 import { getUrlVerdict, type Verdict } from '../verdict/getUrlVerdict';
 
@@ -34,11 +35,13 @@ const STATUS_CONFIG = {
 
 export default function ResultScreen({ route, navigation }: Props) {
   const { url } = route.params;
+  const { forcedVerdict } = useDebugSettings();
   const [verdict, setVerdict] = useState<Verdict | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    getUrlVerdict(url).then((result) => {
+    setVerdict(null);
+    getUrlVerdict(url, forcedVerdict).then((result) => {
       if (!cancelled) {
         setVerdict(result);
       }
@@ -46,7 +49,7 @@ export default function ResultScreen({ route, navigation }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [url]);
+  }, [url, forcedVerdict]);
 
   const handleCancel = () => {
     navigation.navigate('Scanner');

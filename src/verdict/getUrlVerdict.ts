@@ -31,9 +31,24 @@ const DANGEROUS_REASONS = [
  *
  * Swap this function's body for a real check (API call, on-device
  * heuristics, etc.) later — the signature and return type should stay the
- * same so callers don't need to change.
+ * same so callers don't need to change. Keep honoring `forcedStatus` even
+ * after that swap — it's what backs the debug menu's "simulate verdict"
+ * option, which stays useful for demos and QA once the real check exists.
  */
-export async function getUrlVerdict(url: string): Promise<Verdict> {
+export async function getUrlVerdict(
+  url: string,
+  forcedStatus?: VerdictStatus | null
+): Promise<Verdict> {
+  if (forcedStatus) {
+    if (forcedStatus === 'dangerous') {
+      return {
+        status: 'dangerous',
+        reason: DANGEROUS_REASONS[Math.floor(Math.random() * DANGEROUS_REASONS.length)],
+      };
+    }
+    return { status: forcedStatus };
+  }
+
   const roll = Math.random();
 
   if (roll < 0.34) {
