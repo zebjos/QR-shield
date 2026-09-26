@@ -57,7 +57,7 @@ export default function DebugSettingsSheet({ visible, onClose }: Props) {
         <Pressable style={styles.sheet} onPress={() => {}}>
           <Text style={styles.title}>Debug Settings</Text>
           <Text style={styles.subtitle}>
-            {'Not part of the real app — for testing during development.'}
+            {'For testing during development.'}
           </Text>
 
           <Text style={styles.sectionLabel}>Simulate verdict on next scan</Text>
@@ -106,7 +106,7 @@ export default function DebugSettingsSheet({ visible, onClose }: Props) {
             <Text style={styles.simulateButtonText}>Simulate scan</Text>
           </Pressable>
           <Text style={styles.simulateHint}>
-            {'Jumps straight to the result, no camera needed — handy on an emulator.'}
+            {'Gives verdict on an example url.'}
           </Text>
 
           <Pressable
