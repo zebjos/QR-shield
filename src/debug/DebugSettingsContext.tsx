@@ -1,13 +1,15 @@
 import { createContext, useContext, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 
-import type { VerdictStatus } from '../verdict/getUrlVerdict';
+import type { DangerReasonCode, VerdictStatus } from '../verdict/getUrlVerdict';
 
 interface DebugSettingsValue {
   buttonVisible: boolean;
   hideButton: () => void;
   forcedVerdict: VerdictStatus | null;
   setForcedVerdict: (status: VerdictStatus | null) => void;
+  forcedReasonCode: DangerReasonCode | null;
+  setForcedReasonCode: (code: DangerReasonCode | null) => void;
 }
 
 const DebugSettingsContext = createContext<DebugSettingsValue | null>(null);
@@ -15,6 +17,9 @@ const DebugSettingsContext = createContext<DebugSettingsValue | null>(null);
 export function DebugSettingsProvider({ children }: { children: ReactNode }) {
   const [buttonVisible, setButtonVisible] = useState(true);
   const [forcedVerdict, setForcedVerdict] = useState<VerdictStatus | null>(null);
+  const [forcedReasonCode, setForcedReasonCode] = useState<DangerReasonCode | null>(
+    null
+  );
 
   const value = useMemo<DebugSettingsValue>(
     () => ({
@@ -22,8 +27,10 @@ export function DebugSettingsProvider({ children }: { children: ReactNode }) {
       hideButton: () => setButtonVisible(false),
       forcedVerdict,
       setForcedVerdict,
+      forcedReasonCode,
+      setForcedReasonCode,
     }),
-    [buttonVisible, forcedVerdict]
+    [buttonVisible, forcedVerdict, forcedReasonCode]
   );
 
   return (

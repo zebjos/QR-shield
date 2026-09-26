@@ -22,6 +22,7 @@ function extractUrl(data: string): string | null {
 export default function ScannerScreen({ navigation }: Props) {
   const [permission, requestPermission] = useCameraPermissions();
   const [notice, setNotice] = useState<string | null>(null);
+  const [isFocused, setIsFocused] = useState(true);
   const scannedRef = useRef(false);
 
   useEffect(() => {
@@ -31,13 +32,21 @@ export default function ScannerScreen({ navigation }: Props) {
   }, [permission, requestPermission]);
 
   // Reset the scan lock whenever this screen regains focus (e.g. coming
-  // back from the Result screen via Cancel).
+  // back from the Result sheet via Cancel), and pause the camera while the
+  // Result sheet is covering it.
   useEffect(() => {
-    const unsubscribe = navigation.addListener('focus', () => {
+    const unsubFocus = navigation.addListener('focus', () => {
       scannedRef.current = false;
       setNotice(null);
+      setIsFocused(true);
     });
-    return unsubscribe;
+    const unsubBlur = navigation.addListener('blur', () => {
+      setIsFocused(false);
+    });
+    return () => {
+      unsubFocus();
+      unsubBlur();
+    };
   }, [navigation]);
 
   const handleBarcodeScanned = useCallback(
@@ -78,6 +87,7 @@ export default function ScannerScreen({ navigation }: Props) {
       <CameraView
         style={styles.camera}
         facing="back"
+        active={isFocused}
         barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
         onBarcodeScanned={handleBarcodeScanned}
       />

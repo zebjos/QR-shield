@@ -1,12 +1,16 @@
-import { Modal, Pressable, StyleSheet, Text } from 'react-native';
+import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import type { VerdictStatus } from '../verdict/getUrlVerdict';
+import { navigationRef } from '../navigation/navigationRef';
+import type { DangerReasonCode, VerdictStatus } from '../verdict/getUrlVerdict';
+import { DANGER_REASON_TEXT } from '../verdict/getUrlVerdict';
 import { useDebugSettings } from './DebugSettingsContext';
 
 interface Props {
   visible: boolean;
   onClose: () => void;
 }
+
+const SIMULATED_URL = 'https://example.com/simulated-qr-scan';
 
 const VERDICT_OPTIONS: { label: string; value: VerdictStatus | null }[] = [
   { label: 'Random (default)', value: null },
@@ -15,8 +19,37 @@ const VERDICT_OPTIONS: { label: string; value: VerdictStatus | null }[] = [
   { label: 'Dangerous', value: 'dangerous' },
 ];
 
+const REASON_LABELS: Record<DangerReasonCode, string> = {
+  brandLookalike: 'Brand lookalike',
+  newlyRegisteredDomain: 'New domain',
+  reportedPhishing: 'Reported phishing',
+  ipAddressHost: 'Raw IP address',
+  suspiciousRedirectChain: 'Suspicious redirect',
+};
+
+const REASON_OPTIONS: { label: string; value: DangerReasonCode | null }[] = [
+  { label: 'Random', value: null },
+  ...(Object.keys(DANGER_REASON_TEXT) as DangerReasonCode[]).map((code) => ({
+    label: REASON_LABELS[code],
+    value: code,
+  })),
+];
+
 export default function DebugSettingsSheet({ visible, onClose }: Props) {
-  const { forcedVerdict, setForcedVerdict, hideButton } = useDebugSettings();
+  const {
+    forcedVerdict,
+    setForcedVerdict,
+    forcedReasonCode,
+    setForcedReasonCode,
+    hideButton,
+  } = useDebugSettings();
+
+  const handleSimulateScan = () => {
+    onClose();
+    if (navigationRef.isReady()) {
+      navigationRef.navigate('Result', { url: SIMULATED_URL });
+    }
+  };
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
@@ -42,6 +75,39 @@ export default function DebugSettingsSheet({ visible, onClose }: Props) {
               </Pressable>
             );
           })}
+
+          {forcedVerdict === 'dangerous' ? (
+            <>
+              <Text style={[styles.sectionLabel, styles.reasonLabel]}>
+                Danger reason
+              </Text>
+              <View style={styles.chipRow}>
+                {REASON_OPTIONS.map((option) => {
+                  const selected = forcedReasonCode === option.value;
+                  return (
+                    <Pressable
+                      key={option.label}
+                      style={[styles.chip, selected && styles.chipSelected]}
+                      onPress={() => setForcedReasonCode(option.value)}
+                    >
+                      <Text
+                        style={[styles.chipText, selected && styles.chipTextSelected]}
+                      >
+                        {option.label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </>
+          ) : null}
+
+          <Pressable style={styles.simulateButton} onPress={handleSimulateScan}>
+            <Text style={styles.simulateButtonText}>Simulate scan</Text>
+          </Pressable>
+          <Text style={styles.simulateHint}>
+            {'Jumps straight to the result, no camera needed — handy on an emulator.'}
+          </Text>
 
           <Pressable
             style={styles.hideButton}
@@ -112,6 +178,49 @@ const styles = StyleSheet.create({
   },
   optionTextSelected: {
     color: '#fff',
+  },
+  reasonLabel: {
+    marginTop: 20,
+  },
+  chipRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  chip: {
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 16,
+    backgroundColor: '#F5F5F5',
+  },
+  chipSelected: {
+    backgroundColor: '#111',
+  },
+  chipText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: '#111',
+  },
+  chipTextSelected: {
+    color: '#fff',
+  },
+  simulateButton: {
+    marginTop: 24,
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+    backgroundColor: '#111',
+  },
+  simulateButtonText: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 15,
+  },
+  simulateHint: {
+    fontSize: 12,
+    color: '#999',
+    textAlign: 'center',
+    marginTop: 6,
   },
   hideButton: {
     marginTop: 24,

@@ -35,13 +35,13 @@ const STATUS_CONFIG = {
 
 export default function ResultScreen({ route, navigation }: Props) {
   const { url } = route.params;
-  const { forcedVerdict } = useDebugSettings();
+  const { forcedVerdict, forcedReasonCode } = useDebugSettings();
   const [verdict, setVerdict] = useState<Verdict | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     setVerdict(null);
-    getUrlVerdict(url, forcedVerdict).then((result) => {
+    getUrlVerdict(url, forcedVerdict, forcedReasonCode).then((result) => {
       if (!cancelled) {
         setVerdict(result);
       }
@@ -49,69 +49,99 @@ export default function ResultScreen({ route, navigation }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [url, forcedVerdict]);
+  }, [url, forcedVerdict, forcedReasonCode]);
 
   const handleCancel = () => {
-    navigation.navigate('Scanner');
+    navigation.goBack();
   };
 
   const handleOpen = () => {
     Linking.openURL(url);
   };
 
-  if (!verdict) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" />
-        <Text style={styles.loadingText}>{'Checking link…'}</Text>
-      </View>
-    );
-  }
-
-  const config = STATUS_CONFIG[verdict.status];
-
   return (
-    <View style={styles.container}>
-      <View style={styles.urlBlock}>
-        <Text style={styles.urlLabel}>Destination</Text>
-        <Text style={styles.url} selectable numberOfLines={4}>
-          {url}
-        </Text>
-      </View>
+    <Pressable style={styles.backdrop} onPress={handleCancel}>
+      <Pressable style={styles.sheet} onPress={() => {}}>
+        <View style={styles.grabber} />
 
-      <View style={[styles.statusBadge, { backgroundColor: config.background }]}>
-        <Text style={styles.statusSymbol}>{config.symbol}</Text>
-        <Text style={styles.statusLabel}>{config.label}</Text>
-      </View>
+        {!verdict ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" />
+            <Text style={styles.loadingText}>{'Checking link…'}</Text>
+          </View>
+        ) : (
+          <>
+            <View style={styles.urlBlock}>
+              <Text style={styles.urlLabel}>Destination</Text>
+              <Text style={styles.url} selectable numberOfLines={3}>
+                {url}
+              </Text>
+            </View>
 
-      {verdict.status === 'dangerous' && verdict.reason ? (
-        <Text style={styles.reason}>{verdict.reason}</Text>
-      ) : null}
+            <View
+              style={[
+                styles.statusBadge,
+                { backgroundColor: STATUS_CONFIG[verdict.status].background },
+              ]}
+            >
+              <Text style={styles.statusSymbol}>
+                {STATUS_CONFIG[verdict.status].symbol}
+              </Text>
+              <Text style={styles.statusLabel}>
+                {STATUS_CONFIG[verdict.status].label}
+              </Text>
+            </View>
 
-      <View style={styles.buttonRow}>
-        <Pressable style={[styles.button, styles.cancelButton]} onPress={handleCancel}>
-          <Text style={styles.cancelButtonText}>Cancel</Text>
-        </Pressable>
-        <Pressable style={[styles.button, styles.openButton]} onPress={handleOpen}>
-          <Text style={styles.openButtonText}>Open Website</Text>
-        </Pressable>
-      </View>
-    </View>
+            {verdict.status === 'dangerous' && verdict.reason ? (
+              <Text style={styles.reason}>{verdict.reason}</Text>
+            ) : null}
+
+            <View style={styles.buttonRow}>
+              <Pressable
+                style={[styles.button, styles.cancelButton]}
+                onPress={handleCancel}
+              >
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.button, styles.openButton]}
+                onPress={handleOpen}
+              >
+                <Text style={styles.openButtonText}>Open Website</Text>
+              </Pressable>
+            </View>
+          </>
+        )}
+      </Pressable>
+    </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  backdrop: {
     flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'flex-end',
+  },
+  sheet: {
     backgroundColor: '#fff',
-    padding: 24,
-    paddingTop: 72,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 24,
+    paddingTop: 12,
+    paddingBottom: 40,
+  },
+  grabber: {
+    alignSelf: 'center',
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#E0E0E0',
+    marginBottom: 20,
   },
   loadingContainer: {
-    flex: 1,
-    backgroundColor: '#fff',
+    paddingVertical: 40,
     alignItems: 'center',
-    justifyContent: 'center',
   },
   loadingText: {
     marginTop: 12,
@@ -119,7 +149,7 @@ const styles = StyleSheet.create({
     color: '#444',
   },
   urlBlock: {
-    marginBottom: 32,
+    marginBottom: 24,
   },
   urlLabel: {
     fontSize: 13,
@@ -136,17 +166,17 @@ const styles = StyleSheet.create({
   },
   statusBadge: {
     borderRadius: 20,
-    paddingVertical: 36,
+    paddingVertical: 28,
     alignItems: 'center',
     justifyContent: 'center',
   },
   statusSymbol: {
-    fontSize: 56,
+    fontSize: 48,
     color: '#fff',
     fontWeight: '700',
   },
   statusLabel: {
-    fontSize: 24,
+    fontSize: 22,
     color: '#fff',
     fontWeight: '800',
     letterSpacing: 1,
@@ -161,8 +191,7 @@ const styles = StyleSheet.create({
   buttonRow: {
     flexDirection: 'row',
     gap: 12,
-    marginTop: 'auto',
-    marginBottom: 24,
+    marginTop: 24,
   },
   button: {
     flex: 1,
