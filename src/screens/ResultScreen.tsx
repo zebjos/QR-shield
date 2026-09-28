@@ -12,6 +12,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useDebugSettings } from '../debug/DebugSettingsContext';
 import type { RootStackParamList } from '../navigation/types';
 import { getUrlVerdict, type Verdict } from '../verdict/getUrlVerdict';
+import { triggerDangerVibration } from '../verdict/verdictHaptics';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Result'>;
 
@@ -44,6 +45,7 @@ export default function ResultScreen({ route, navigation }: Props) {
     getUrlVerdict(url, forcedVerdict, forcedReasonCode).then((result) => {
       if (!cancelled) {
         setVerdict(result);
+        triggerDangerVibration(result.status);
       }
     });
     return () => {
