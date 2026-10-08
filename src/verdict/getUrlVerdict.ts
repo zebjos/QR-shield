@@ -67,6 +67,17 @@ function dangerousVerdict(reasonCode: DangerReasonCode): Verdict {
  * "simulate verdict" option, which stays useful for demos and QA once the
  * real check exists.
  */
+function hostIsPunycode(url: string): boolean {
+  try {
+    return new URL(url).hostname
+      .toLowerCase()
+      .split('.')
+      .some((l) => l.startsWith('xn--'));
+  } catch {
+    return false;
+  }
+}
+
 export async function getUrlVerdict(
   url: string,
   forcedStatus?: VerdictStatus | null,
@@ -77,6 +88,12 @@ export async function getUrlVerdict(
       return dangerousVerdict(forcedReasonCode ?? randomReasonCode());
     }
     return { status: forcedStatus };
+  }
+
+  // Local, high-confidence red flag: a punycode (xn--) label is almost always
+  // a homoglyph lookalike in the wild. Flag it before the random roll.
+  if (hostIsPunycode(url)) {
+    return dangerousVerdict('brandLookalike');
   }
 
   const roll = Math.random();
