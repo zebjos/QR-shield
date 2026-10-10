@@ -6,24 +6,37 @@ import {
   StyleSheet,
   Text,
   View,
+  type StyleProp,
+  type ViewStyle,
 } from 'react-native';
+import Animated, {
+  cubicBezier,
+  FadeIn,
+  FadeOut,
+  useReducedMotion,
+} from 'react-native-reanimated';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
 import { useDebugSettings } from '../debug/DebugSettingsContext';
 import type { RootStackParamList } from '../navigation/types';
 import {
   describePayload,
-  hasPunycode,
   parsePayload,
   splitUrlForDisplay,
   type Payload,
 } from '../scanner/qrPayload';
-import { getUrlVerdict, type Verdict } from '../verdict/getUrlVerdict';
+import {
+  getUrlVerdict,
+  sendReport,
+  undoReport,
+  type Indicator,
+  type Verdict,
+} from '../verdict/getUrlVerdict';
 import { triggerDangerVibration } from '../verdict/verdictHaptics';
+import { WHY_EXPLAINERS } from '../verdict/whyExplainers';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Result'>;
 
-// iOS semantic-color approximation
 const C = {
   label: '#000000',
   secondary: '#8E8E93',
@@ -42,78 +55,76 @@ const C = {
 
 const STATUS_CONFIG = {
   safe: { label: 'SAFE', symbol: '✓', background: '#1B873F' },
-  unknown: { label: 'No known threat', symbol: '', background: C.orangeBg }, // kept for symmetry but unknown uses a pill
+  unknown: { label: 'No known threat', symbol: '', background: C.orangeBg },
   dangerous: { label: 'DANGEROUS', symbol: '⚠', background: C.red },
 } as const;
 
 const DANGEROUS_RECOMMENDATION =
   'Don’t open this link. If you need this information, ask staff or type the website address yourself.';
 
-type Indicator = { label: string; value: string; attention: boolean };
-
-// --- Mock indicator data ------------------------------------------------------
-// Per-host overrides for the demo. Anything not listed falls back to defaults
-// derived from the URL (protocol real; age/reports fabricated).
-
-const KNOWN_SHORTENERS = new Set([
-  'bit.ly', 't.co', 'tinyurl.com', 'goo.gl', 'ow.ly', 'is.gd',
-  'buff.ly', 'cutt.ly', 'rb.gy', 'rebrand.ly',
-]);
-
-type MockHost = {
-  ageText: string;
-  ageAttention: boolean;
-  reports: number;
+// Reanimated CSS keyframes — plays once on mount, visual counterpart to the
+// vibration for the dangerous verdict (and the only alert cue on desktop web,
+// where navigator.vibrate is unavailable).
+const DANGER_SHAKE: Record<string, unknown> = {
+  animationName: {
+    '0%': { transform: [{ translateX: 0 }] },
+    '15%': { transform: [{ translateX: -8 }] },
+    '30%': { transform: [{ translateX: 8 }] },
+    '45%': { transform: [{ translateX: -6 }] },
+    '60%': { transform: [{ translateX: 6 }] },
+    '75%': { transform: [{ translateX: -3 }] },
+    '100%': { transform: [{ translateX: 0 }] },
+  },
+  animationDuration: 450,
+  animationTimingFunction: cubicBezier(0.23, 1, 0.32, 1),
+  animationIterationCount: 1,
 };
 
-const MOCK_HOSTS: Record<string, MockHost> = {
-  'example.com': { ageText: 'Created in 1995', ageAttention: false, reports: 0 },
-  'paypal-secure-login.com': { ageText: 'Created 3 days ago', ageAttention: true, reports: 12 },
-  'bit.ly': { ageText: 'Created in 2008', ageAttention: false, reports: 3 },
-  'login-verify.xyz': { ageText: 'Created 2 months ago', ageAttention: true, reports: 7 },
-};
-const DEFAULT_HOST: MockHost = { ageText: 'Created in 2018', ageAttention: false, reports: 0 };
-
-function buildIndicators(url: string): Indicator[] {
-  const host = safeHost(url) ?? '';
-  const isHttps = url.toLowerCase().startsWith('https://');
-  const shortener = KNOWN_SHORTENERS.has(host) ? host : null;
-  const mock = MOCK_HOSTS[host] ?? DEFAULT_HOST;
-  return [
-    {
-      label: 'Domain age',
-      value: mock.ageText,
-      attention: mock.ageAttention,
-    },
-    {
-      label: 'Redirects',
-      value: shortener ? `Redirects via ${shortener}` : 'No redirects',
-      attention: !!shortener,
-    },
-    {
-      label: 'Connection',
-      value: isHttps ? 'HTTPS' : 'No HTTPS',
-      attention: !isHttps,
-    },
-    {
-      label: 'Community',
-      value: mock.reports > 0
-        ? `${mock.reports} report${mock.reports > 1 ? 's' : ''}`
-        : 'No reports',
-      attention: mock.reports > 0,
-    },
-  ];
+// --- Press feedback ---------------------------------------------------------
+function PressableScale({
+  onPress,
+  style,
+  containerStyle,
+  children,
+  scale = 0.97,
+}: {
+  onPress?: () => void;
+  /** Visual style (background, padding, border…) applied to the inner animated layer. */
+  style?: StyleProp<ViewStyle>;
+  /** Layout style (flex, width, margin…) applied to the outer Pressable so the
+   *  element participates in its parent's layout correctly. */
+  containerStyle?: StyleProp<ViewStyle>;
+  children: React.ReactNode;
+  scale?: number;
+}) {
+  const [pressed, setPressed] = useState(false);
+  const reduced = useReducedMotion();
+  const target = reduced ? 1 : pressed ? scale : 1;
+  const opacity = reduced ? 1 : pressed ? 0.9 : 1;
+  return (
+    <Pressable
+      onPress={onPress}
+      onPressIn={() => setPressed(true)}
+      onPressOut={() => setPressed(false)}
+      style={containerStyle}
+    >
+      <Animated.View
+        style={[
+          style,
+          {
+            transform: [{ scale: target }],
+            opacity,
+            transitionProperty: ['transform', 'opacity'],
+            transitionDuration: 120,
+            transitionTimingFunction: 'ease-out',
+          },
+        ]}
+      >
+        {children}
+      </Animated.View>
+    </Pressable>
+  );
 }
-
-function safeHost(url: string): string | null {
-  try {
-    return new URL(url).hostname.toLowerCase();
-  } catch {
-    return null;
-  }
-}
-
-// --- Rows ---------------------------------------------------------------------
 
 function InfoRow({
   label,
@@ -168,7 +179,7 @@ function HighlightedUrl({ url }: { url: string }) {
   );
 }
 
-// --- Non-URL sheet ------------------------------------------------------------
+// --- Non-URL sheet ----------------------------------------------------------
 
 function NonUrlSheet({
   payload,
@@ -195,18 +206,20 @@ function NonUrlSheet({
       <Text style={styles.nonUrlTitle}>{describePayload(payload)}</Text>
       <NonUrlDetails payload={payload} />
       <View style={styles.buttonRow}>
-        <Pressable
+        <PressableScale
+          containerStyle={styles.btnFlex}
           style={[styles.button, styles.cancelButton]}
           onPress={onCancel}
         >
           <Text style={styles.cancelButtonText}>Cancel</Text>
-        </Pressable>
-        <Pressable
+        </PressableScale>
+        <PressableScale
+          containerStyle={styles.btnFlex}
           style={[styles.button, styles.openButton]}
           onPress={onContinue}
         >
           <Text style={styles.openButtonText}>Continue</Text>
-        </Pressable>
+        </PressableScale>
       </View>
     </>
   );
@@ -269,49 +282,93 @@ function NonUrlDetails({ payload }: { payload: Payload }) {
   return null;
 }
 
-// --- Screen -------------------------------------------------------------------
+// --- Screen -----------------------------------------------------------------
 
 export default function ResultScreen({ route, navigation }: Props) {
   const { url: raw } = route.params;
-  const { forcedVerdict, forcedReasonCode } = useDebugSettings();
+  const { forcedVerdict, forcedReasonCode, safeAutoOpen } = useDebugSettings();
   const payload = useMemo(() => parsePayload(raw), [raw]);
   const isUrl = payload.kind === 'url';
   const urlForIntel = isUrl ? payload.url : '';
-  const indicators = useMemo(
-    () => (isUrl ? buildIndicators(urlForIntel) : []),
-    [isUrl, urlForIntel]
-  );
-  const punycode = isUrl ? hasPunycode(urlForIntel) : false;
   const [verdict, setVerdict] = useState<Verdict | null>(null);
   const [reported, setReported] = useState(false);
+  const [whyOpen, setWhyOpen] = useState(false);
+  const [goodCall, setGoodCall] = useState(false);
+  const reduced = useReducedMotion();
 
   useEffect(() => {
     if (!isUrl) return;
     let cancelled = false;
+    let autoOpenTimer: ReturnType<typeof setTimeout> | null = null;
     setVerdict(null);
-    getUrlVerdict(raw, forcedVerdict, forcedReasonCode).then((result) => {
-      if (!cancelled) {
-        setVerdict(result);
-        triggerDangerVibration(result.status);
+    getUrlVerdict(urlForIntel, forcedVerdict, forcedReasonCode).then((result) => {
+      if (cancelled) return;
+      setVerdict(result);
+      triggerDangerVibration(result.status);
+      // Trusted / safe URL → user shouldn't have to tap "Open". Flash the
+      // safe state for 500ms (so they SEE why we didn't ask), then open.
+      // Debug toggle `safeAutoOpen` lets the team pivot to always-ask without
+      // a redeploy.
+      if (result.status === 'safe' && safeAutoOpen) {
+        autoOpenTimer = setTimeout(() => {
+          Linking.openURL(result.finalUrl ?? urlForIntel);
+          navigation.goBack();
+        }, 500);
       }
     });
     return () => {
       cancelled = true;
+      if (autoOpenTimer) clearTimeout(autoOpenTimer);
     };
-  }, [raw, forcedVerdict, forcedReasonCode, isUrl]);
+  }, [urlForIntel, forcedVerdict, forcedReasonCode, isUrl, navigation, safeAutoOpen]);
 
-  const handleCancel = () => navigation.goBack();
+  const handleCancel = () => {
+    // Cancelled a dangerous link → surface a brief positive reinforcement
+    // instead of silently closing. Positive feedback for the right behaviour
+    // (vs. the usual "only punish bad choices" asymmetry).
+    if (verdict?.status === 'dangerous') {
+      setGoodCall(true);
+      setTimeout(() => navigation.goBack(), 1600);
+      return;
+    }
+    navigation.goBack();
+  };
   const handleContinue = () => {
     if (payload.kind === 'wifi') {
-      // Can't programmatically connect to Wi-Fi on iOS from JS; let the user
-      // handle it. For the demo, just dismiss.
       navigation.goBack();
       return;
     }
-    Linking.openURL(raw);
+    const target = verdict?.finalUrl ?? raw;
+    Linking.openURL(target);
   };
 
-  // Non-URL payload → separate sheet, no verdict badge.
+  const handleToggleReport = async () => {
+    if (!isUrl) return;
+    const next = !reported;
+    setReported(next);
+    const op = next ? sendReport : undoReport;
+    const newCount = await op(urlForIntel);
+    if (newCount !== null && verdict) {
+      // Reflect the new count in the Community indicator row.
+      setVerdict({
+        ...verdict,
+        reportCount: newCount,
+        indicators: verdict.indicators.map((ind) =>
+          ind.label === 'Community'
+            ? {
+                ...ind,
+                value:
+                  newCount > 0
+                    ? `${newCount} report${newCount > 1 ? 's' : ''}`
+                    : 'No reports',
+                attention: newCount > 0,
+              }
+            : ind
+        ),
+      });
+    }
+  };
+
   if (!isUrl) {
     return (
       <Pressable style={styles.backdrop} onPress={handleCancel}>
@@ -327,7 +384,24 @@ export default function ResultScreen({ route, navigation }: Props) {
     );
   }
 
-  const url = urlForIntel;
+  if (goodCall) {
+    return (
+      <View style={styles.backdrop}>
+        <Animated.View
+          style={styles.sheet}
+          entering={reduced ? undefined : FadeIn.duration(140)}
+        >
+          <View style={styles.goodCallBox}>
+            <Text style={styles.goodCallCheck}>✓</Text>
+            <Text style={styles.goodCallTitle}>Good call.</Text>
+            <Text style={styles.goodCallText}>
+              You just avoided a flagged page.
+            </Text>
+          </View>
+        </Animated.View>
+      </View>
+    );
+  }
 
   return (
     <Pressable style={styles.backdrop} onPress={handleCancel}>
@@ -335,16 +409,28 @@ export default function ResultScreen({ route, navigation }: Props) {
         <View style={styles.grabber} />
 
         {!verdict ? (
-          <View style={styles.loadingContainer}>
+          <Animated.View
+            key="loading"
+            exiting={reduced ? undefined : FadeOut.duration(100)}
+            style={styles.loadingContainer}
+          >
             <ActivityIndicator size="large" />
             <Text style={styles.loadingText}>Checking link…</Text>
-          </View>
+          </Animated.View>
         ) : (
-          <>
+          <Animated.View
+            key="verdict"
+            entering={reduced ? undefined : FadeIn.duration(180)}
+          >
             <View style={styles.urlBlock}>
               <Text style={styles.urlLabel}>Destination</Text>
-              <HighlightedUrl url={url} />
-              {punycode ? (
+              <HighlightedUrl url={verdict.finalUrl || urlForIntel} />
+              {verdict.redirectedFrom ? (
+                <Text style={styles.redirectHint} numberOfLines={2}>
+                  Redirected from {verdict.redirectedFrom}
+                </Text>
+              ) : null}
+              {verdict.punycode ? (
                 <Text style={styles.punycodeHint}>
                   Contains punycode (xn--) — possible lookalike domain.
                 </Text>
@@ -374,67 +460,135 @@ export default function ResultScreen({ route, navigation }: Props) {
             )}
 
             {verdict.status === 'dangerous' && verdict.reason ? (
-              <>
+              <Animated.View style={reduced ? undefined : DANGER_SHAKE}>
                 <Text style={styles.reason}>{verdict.reason}</Text>
                 <Text style={styles.recommendation}>
                   {DANGEROUS_RECOMMENDATION}
                 </Text>
-              </>
+                {verdict.reasonCode && WHY_EXPLAINERS[verdict.reasonCode] ? (
+                  <>
+                    <Pressable onPress={() => setWhyOpen((v) => !v)}>
+                      <Text style={styles.whyToggle}>
+                        {whyOpen ? '− Hide explanation' : 'Why is this flagged?'}
+                      </Text>
+                    </Pressable>
+                    {whyOpen ? (
+                      <View style={styles.whyBox}>
+                        <Text style={styles.whyText}>
+                          {WHY_EXPLAINERS[verdict.reasonCode].why({
+                            host: verdict.host,
+                            registrable: verdict.registrableDomain,
+                          })}
+                        </Text>
+                        <Text style={styles.whyTip}>
+                          How to spot it next time —{' '}
+                          {WHY_EXPLAINERS[verdict.reasonCode].spot}
+                        </Text>
+                      </View>
+                    ) : null}
+                  </>
+                ) : null}
+              </Animated.View>
             ) : null}
 
-            {verdict.status === 'unknown' ? (
+            {verdict.paymentLike ? (
+              <View style={styles.stickerBox}>
+                <Text style={styles.stickerTitle}>Looks like a payment page</Text>
+                <Text style={styles.stickerText}>
+                  Check that this QR code isn’t a sticker placed over another
+                  one. Attackers glue their QR codes on top of legitimate ones
+                  on parking meters, menus, invoices, etc.
+                </Text>
+              </View>
+            ) : null}
+
+            {verdict.status === 'unknown' && verdict.indicators.length > 0 ? (
               <View style={styles.infoList}>
-                {indicators.map((ind, i) => (
+                {verdict.indicators.map((ind: Indicator, i: number) => (
                   <InfoRow
                     key={ind.label}
                     label={ind.label}
                     value={ind.value}
                     attention={ind.attention}
-                    last={i === indicators.length - 1}
+                    last={i === verdict.indicators.length - 1}
                   />
                 ))}
               </View>
             ) : null}
 
-            <View style={styles.buttonRow}>
-              <Pressable
-                style={[styles.button, styles.cancelButton]}
-                onPress={handleCancel}
-              >
-                <Text style={styles.cancelButtonText}>Cancel</Text>
-              </Pressable>
-              <Pressable
-                style={[styles.button, styles.openButton]}
-                onPress={handleContinue}
-              >
-                <Text style={styles.openButtonText}>Open Website</Text>
-              </Pressable>
-            </View>
+            {verdict.status === 'safe' && safeAutoOpen ? (
+              // Auto-opens in 500ms — just show a one-liner so the user sees
+              // we flashed the state, no decision to make.
+              <Text style={styles.autoOpenHint}>Opening in your browser…</Text>
+            ) : (
+              <View style={styles.buttonRow}>
+                <PressableScale
+                  containerStyle={styles.btnFlex}
+                  style={[styles.button, styles.cancelButton]}
+                  onPress={handleCancel}
+                >
+                  <Text style={styles.cancelButtonText}>Cancel</Text>
+                </PressableScale>
+                <PressableScale
+                  containerStyle={styles.btnFlex}
+                  style={[styles.button, styles.openButton]}
+                  onPress={handleContinue}
+                >
+                  <Text style={styles.openButtonText}>Open Website</Text>
+                </PressableScale>
+              </View>
+            )}
 
-            <Pressable
+            {verdict.status !== 'safe' ? (
+            <PressableScale
+              containerStyle={styles.reportContainer}
               style={[
                 styles.reportButton,
                 reported && styles.reportButtonReported,
               ]}
-              onPress={() => setReported((r) => !r)}
+              onPress={handleToggleReport}
             >
-              <Text
-                style={[
-                  styles.reportButtonText,
-                  reported && styles.reportButtonTextReported,
-                ]}
-              >
-                {reported ? 'Reported — tap to undo' : 'Report this link'}
-              </Text>
-            </Pressable>
-          </>
+              <View style={styles.reportLabelStack}>
+                <Animated.Text
+                  style={[
+                    styles.reportButtonText,
+                    styles.reportLabel,
+                    {
+                      opacity: reported ? 0 : 1,
+                      transitionProperty: ['opacity'],
+                      transitionDuration: 150,
+                      transitionTimingFunction: 'ease-out',
+                    },
+                  ]}
+                >
+                  Report this link
+                </Animated.Text>
+                <Animated.Text
+                  style={[
+                    styles.reportButtonText,
+                    styles.reportButtonTextReported,
+                    styles.reportLabel,
+                    {
+                      opacity: reported ? 1 : 0,
+                      transitionProperty: ['opacity'],
+                      transitionDuration: 150,
+                      transitionTimingFunction: 'ease-out',
+                    },
+                  ]}
+                >
+                  Reported — tap to undo
+                </Animated.Text>
+              </View>
+            </PressableScale>
+            ) : null}
+          </Animated.View>
         )}
       </Pressable>
     </Pressable>
   );
 }
 
-// --- Styles -------------------------------------------------------------------
+// --- Styles ------------------------------------------------------------------
 
 const styles = StyleSheet.create({
   backdrop: {
@@ -490,6 +644,12 @@ const styles = StyleSheet.create({
     color: C.label,
     fontWeight: '700',
   },
+  redirectHint: {
+    marginTop: 6,
+    fontSize: 13,
+    color: C.secondary,
+    fontStyle: 'italic',
+  },
   punycodeHint: {
     marginTop: 6,
     fontSize: 13,
@@ -526,6 +686,78 @@ const styles = StyleSheet.create({
     color: C.secondary,
     textAlign: 'center',
     lineHeight: 20,
+  },
+  whyToggle: {
+    marginTop: 12,
+    fontSize: 14,
+    color: C.blue,
+    textAlign: 'center',
+    fontWeight: '500',
+  },
+  whyBox: {
+    marginTop: 10,
+    padding: 12,
+    borderRadius: 10,
+    backgroundColor: '#F2F2F7',
+  },
+  whyText: {
+    fontSize: 14,
+    color: C.label,
+    lineHeight: 20,
+  },
+  whyTip: {
+    marginTop: 8,
+    fontSize: 13,
+    color: C.secondary,
+    lineHeight: 18,
+  },
+  stickerBox: {
+    marginTop: 14,
+    padding: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    backgroundColor: '#FFFBEB',
+  },
+  stickerTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#92400E',
+    marginBottom: 4,
+  },
+  stickerText: {
+    fontSize: 13,
+    color: '#78350F',
+    lineHeight: 18,
+  },
+  goodCallBox: {
+    paddingVertical: 48,
+    paddingHorizontal: 24,
+    alignItems: 'center',
+  },
+  goodCallCheck: {
+    fontSize: 56,
+    color: '#1B873F',
+    fontWeight: '700',
+    marginBottom: 12,
+  },
+  goodCallTitle: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: C.label,
+    marginBottom: 6,
+  },
+  autoOpenHint: {
+    marginTop: 20,
+    fontSize: 14,
+    color: C.secondary,
+    textAlign: 'center',
+    fontStyle: 'italic',
+  },
+  goodCallText: {
+    fontSize: 15,
+    color: C.secondary,
+    textAlign: 'center',
   },
   unknownPill: {
     alignSelf: 'flex-start',
@@ -590,6 +822,21 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#DC2626',
     backgroundColor: '#FEF2F2',
+    overflow: 'hidden',
+  },
+  reportLabelStack: {
+    position: 'relative',
+    minHeight: 20,
+    alignSelf: 'stretch',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  reportLabel: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    textAlign: 'center',
   },
   reportButtonText: {
     color: C.redText,
@@ -608,8 +855,13 @@ const styles = StyleSheet.create({
     gap: 12,
     marginTop: 20,
   },
-  button: {
+  btnFlex: {
     flex: 1,
+  },
+  reportContainer: {
+    alignSelf: 'stretch',
+  },
+  button: {
     paddingVertical: 16,
     borderRadius: 14,
     alignItems: 'center',

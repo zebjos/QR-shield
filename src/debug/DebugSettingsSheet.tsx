@@ -53,6 +53,8 @@ export default function DebugSettingsSheet({ visible, onClose }: Props) {
     setForcedVerdict,
     forcedReasonCode,
     setForcedReasonCode,
+    safeAutoOpen,
+    setSafeAutoOpen,
     hideButton,
   } = useDebugSettings();
 
@@ -137,6 +139,32 @@ export default function DebugSettingsSheet({ visible, onClose }: Props) {
                 <Text style={styles.chipText}>{sample.label}</Text>
               </Pressable>
             ))}
+          </View>
+
+          <Text style={[styles.sectionLabel, styles.reasonLabel]}>
+            Safe URL behaviour
+          </Text>
+          <View style={styles.chipRow}>
+            <Pressable
+              style={[styles.chip, safeAutoOpen && styles.chipSelected]}
+              onPress={() => setSafeAutoOpen(true)}
+            >
+              <Text
+                style={[styles.chipText, safeAutoOpen && styles.chipTextSelected]}
+              >
+                Direct redirect
+              </Text>
+            </Pressable>
+            <Pressable
+              style={[styles.chip, !safeAutoOpen && styles.chipSelected]}
+              onPress={() => setSafeAutoOpen(false)}
+            >
+              <Text
+                style={[styles.chipText, !safeAutoOpen && styles.chipTextSelected]}
+              >
+                Always ask
+              </Text>
+            </Pressable>
           </View>
 
           <Pressable

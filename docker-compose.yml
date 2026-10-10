@@ -1,0 +1,35 @@
+# Deployment on a self-hosted server behind a Cloudflare Tunnel.
+# Cloudflare terminates TLS at the edge; nothing is exposed on the host.
+# Traffic flow: internet → Cloudflare edge → cloudflared → backend:8000
+#
+# Prereq: a Cloudflare Tunnel with a Public Hostname that routes to
+# `http://backend:8000`. Paste the tunnel token into .env as TUNNEL_TOKEN.
+
+services:
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run --token ${TUNNEL_TOKEN}
+    networks:
+      - web
+    depends_on:
+      - backend
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    environment:
+      - GOOGLE_SAFE_BROWSING_KEY=${GOOGLE_SAFE_BROWSING_KEY:-}
+      - ABUSE_CH_AUTH_KEY=${ABUSE_CH_AUTH_KEY:-}
+      - PHISHTANK_API_KEY=${PHISHTANK_API_KEY:-}
+      - OTX_API_KEY=${OTX_API_KEY:-}
+    volumes:
+      - backend-data:/data
+    networks:
+      - web
+
+networks:
+  web:
+
+volumes:
+  backend-data:
