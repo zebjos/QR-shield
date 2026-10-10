@@ -12,10 +12,22 @@ interface Props {
 
 const SIMULATED_URL = 'https://example.com/simulated-qr-scan';
 
+const PAYLOAD_SAMPLES: { label: string; data: string }[] = [
+  { label: 'URL (default)', data: SIMULATED_URL },
+  { label: 'URL · lookalike (punycode)', data: 'https://xn--pple-43d.com/login' },
+  { label: 'URL · stacked subdomain', data: 'https://secure-paypal.com.login-verify.xyz/signin' },
+  { label: 'URL · bit.ly shortener', data: 'https://bit.ly/3xYz1Ab' },
+  { label: 'URL · plain HTTP', data: 'http://insecure-restaurant-menu.net/menu' },
+  { label: 'SMS', data: 'smsto:+33612345678:STOP' },
+  { label: 'Phone', data: 'tel:+33612345678' },
+  { label: 'Email', data: 'mailto:help@example.com?subject=Table%20booking' },
+  { label: 'Wi-Fi', data: 'WIFI:T:WPA;S:Cafe-Guest;P:menu2025;;' },
+];
+
 const VERDICT_OPTIONS: { label: string; value: VerdictStatus | null }[] = [
   { label: 'Random (default)', value: null },
   { label: 'Safe', value: 'safe' },
-  { label: 'Unknown', value: 'unknown' },
+  { label: 'Not Enough Info', value: 'unknown' },
   { label: 'Dangerous', value: 'dangerous' },
 ];
 
@@ -44,10 +56,10 @@ export default function DebugSettingsSheet({ visible, onClose }: Props) {
     hideButton,
   } = useDebugSettings();
 
-  const handleSimulateScan = () => {
+  const handleSimulateScan = (data: string = SIMULATED_URL) => {
     onClose();
     if (navigationRef.isReady()) {
-      navigationRef.navigate('Result', { url: SIMULATED_URL });
+      navigationRef.navigate('Result', { url: data });
     }
   };
 
@@ -102,12 +114,30 @@ export default function DebugSettingsSheet({ visible, onClose }: Props) {
             </>
           ) : null}
 
-          <Pressable style={styles.simulateButton} onPress={handleSimulateScan}>
+          <Pressable
+            style={styles.simulateButton}
+            onPress={() => handleSimulateScan()}
+          >
             <Text style={styles.simulateButtonText}>Simulate scan</Text>
           </Pressable>
           <Text style={styles.simulateHint}>
             {'Gives verdict on an example url.'}
           </Text>
+
+          <Text style={[styles.sectionLabel, styles.reasonLabel]}>
+            Simulate scan payload
+          </Text>
+          <View style={styles.chipRow}>
+            {PAYLOAD_SAMPLES.map((sample) => (
+              <Pressable
+                key={sample.label}
+                style={styles.chip}
+                onPress={() => handleSimulateScan(sample.data)}
+              >
+                <Text style={styles.chipText}>{sample.label}</Text>
+              </Pressable>
+            ))}
+          </View>
 
           <Pressable
             style={styles.hideButton}
