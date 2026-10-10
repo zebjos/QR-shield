@@ -4,3 +4,4 @@ httpx==0.28.1
 pyzbar==0.1.9
 Pillow==11.0.0
 python-multipart==0.0.20
+tldextract==5.1.3

@@ -33,6 +33,7 @@ import base64
 import io
 
 import httpx
+import tldextract
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from PIL import Image
@@ -41,6 +42,11 @@ from pyzbar.pyzbar import decode as zbar_decode
 
 import threat_intel
 import trusted_sources
+
+# PSL with private suffixes enabled — without this, foo.github.io extracts
+# to "github.io" and lands in Tranco top-100k → verdict comes back "safe".
+# With it, each tenant subdomain is its own registrable name.
+_tld = tldextract.TLDExtract(include_psl_private_domains=True)
 
 DB_PATH = Path(os.environ.get("DB_PATH", Path(__file__).parent / "reports.sqlite3"))
 FETCH_TIMEOUT = 5.0
@@ -51,11 +57,49 @@ KNOWN_SHORTENERS = {
     "buff.ly", "cutt.ly", "rb.gy", "rebrand.ly", "short.io", "tiny.cc",
 }
 
-MULTIPART_TLDS = {
-    "co.uk", "co.jp", "co.kr", "co.nz", "co.za", "com.au", "com.br",
-    "com.cn", "com.mx", "com.tr", "ac.uk", "gov.uk", "org.uk",
-    "ne.jp", "or.jp",
+# User-content silos on big, trusted hostnames — PSL doesn't cover these
+# (they're paths/subdomains on a legit domain), so a user-controlled page on
+# docs.google.com or storage.googleapis.com would otherwise inherit the
+# parent's top-site rank and come back "safe". Any host that matches or ends
+# with one of these can never be marked trusted — threat intel still fires,
+# at best the verdict is "unknown".
+USER_CONTENT_HOSTS = {
+    "docs.google.com",
+    "drive.google.com",
+    "sites.google.com",
+    "script.google.com",
+    "colab.research.google.com",
+    "storage.googleapis.com",
+    "firebasestorage.googleapis.com",
+    "appspot.com",
+    "forms.office.com",
+    "forms.gle",
+    "sway.office.com",
+    "1drv.ms",
+    "onedrive.live.com",
+    "sharepoint.com",
+    "notion.site",
+    "notion.so",
+    "s3.amazonaws.com",
+    "cloudfront.net",
+    "blob.core.windows.net",
+    "web.app",
+    "firebaseapp.com",
+    "glitch.me",
+    "repl.co",
+    "replit.app",
+    "typeform.com",
+    "jotform.com",
+    "surveymonkey.com",
+    "wufoo.com",
 }
+
+
+def is_user_content_host(host: str) -> bool:
+    host = host.lower()
+    if host in USER_CONTENT_HOSTS:
+        return True
+    return any(host.endswith("." + h) for h in USER_CONTENT_HOSTS)
 
 IPV4_RE = re.compile(
     r"^(?:(?:25[0-5]|2[0-4]\d|[01]?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d?\d)$"
@@ -142,13 +186,10 @@ def has_punycode(host: str) -> bool:
 
 
 def registrable_domain(host: str) -> str:
-    labels = host.lower().split(".")
-    if len(labels) < 2:
-        return host
-    last_two = ".".join(labels[-2:])
-    if last_two in MULTIPART_TLDS and len(labels) >= 3:
-        return ".".join(labels[-3:])
-    return last_two
+    ext = _tld(host)
+    # eTLD+1 taking PSL private suffixes into account:
+    # "paypal-login.github.io" → "paypal-login.github.io", not "github.io".
+    return ext.registered_domain or host.lower()
 
 
 # --- Outbound checks --------------------------------------------------------
@@ -383,9 +424,13 @@ async def check(url: str) -> CheckResponse:
     trusted_rank = (
         trusted_sources.get_rank(reg_domain) if reg_domain else None
     )
+    user_content = bool(final_host and is_user_content_host(final_host))
+    # A user-controlled page on a big host (docs.google.com/forms,
+    # storage.googleapis.com, …) can never inherit the parent's trust.
     is_trusted = (
         trusted_rank is not None
         and trusted_rank <= trusted_sources.TRUSTED_RANK_CUTOFF
+        and not user_content
     )
 
     status = "unknown"
@@ -412,7 +457,13 @@ async def check(url: str) -> CheckResponse:
     else:
         is_https = final_url.lower().startswith("https://")
         is_old = age_days is not None and age_days > 5 * 365
-        if is_https and is_old and not shortener and report_count == 0:
+        if (
+            is_https
+            and is_old
+            and not shortener
+            and report_count == 0
+            and not user_content
+        ):
             status = "safe"
 
     if reason_code and not reason:
