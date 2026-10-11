@@ -82,12 +82,14 @@ function fallbackVerdict(url: string): Verdict {
   };
 }
 
-function forcedToVerdict(
-  url: string,
+function applyForce(
+  base: Verdict,
   status: VerdictStatus,
   reasonCode: DangerReasonCode | null | undefined
 ): Verdict {
-  const base = fallbackVerdict(url);
+  // Override only status + reason; KEEP backend indicators / host / etc.
+  // That way the debug menu still shows the real indicator rows (grey/orange
+  // dots) alongside the forced badge.
   if (status === 'dangerous') {
     const code = reasonCode ?? randomReasonCode();
     return {
@@ -95,10 +97,9 @@ function forcedToVerdict(
       status: 'dangerous',
       reasonCode: code,
       reason: DANGER_REASON_TEXT[code],
-      indicators: [],
     };
   }
-  return { ...base, status, indicators: [] };
+  return { ...base, status, reasonCode: undefined, reason: undefined };
 }
 
 export async function getUrlVerdict(
@@ -106,18 +107,19 @@ export async function getUrlVerdict(
   forcedStatus?: VerdictStatus | null,
   forcedReasonCode?: DangerReasonCode | null
 ): Promise<Verdict> {
-  if (forcedStatus) {
-    return forcedToVerdict(url, forcedStatus, forcedReasonCode ?? null);
-  }
+  let backend: Verdict;
   try {
     const res = await fetch(
       `${API_BASE_URL}/check?url=${encodeURIComponent(url)}`
     );
-    if (!res.ok) return fallbackVerdict(url);
-    return (await res.json()) as Verdict;
+    backend = res.ok ? ((await res.json()) as Verdict) : fallbackVerdict(url);
   } catch {
-    return fallbackVerdict(url);
+    backend = fallbackVerdict(url);
   }
+  if (forcedStatus) {
+    return applyForce(backend, forcedStatus, forcedReasonCode ?? null);
+  }
+  return backend;
 }
 
 export async function sendReport(url: string): Promise<number | null> {
