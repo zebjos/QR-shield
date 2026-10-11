@@ -435,6 +435,13 @@ export default function ResultScreen({ route, navigation }: Props) {
                   Contains punycode (xn--) — possible lookalike domain.
                 </Text>
               ) : null}
+              {verdict.offline ? (
+                <View style={styles.offlineBadge}>
+                  <Text style={styles.offlineBadgeText}>
+                    Offline mode — limited checks
+                  </Text>
+                </View>
+              ) : null}
             </View>
 
             {verdict.status === 'unknown' ? (
@@ -654,6 +661,21 @@ const styles = StyleSheet.create({
     marginTop: 6,
     fontSize: 13,
     color: C.redText,
+  },
+  offlineBadge: {
+    alignSelf: 'flex-start',
+    marginTop: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: '#FFF4E5',
+    borderWidth: 1,
+    borderColor: '#F5D5A3',
+  },
+  offlineBadgeText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: C.orangeText,
   },
   statusBadge: {
     borderRadius: 16,

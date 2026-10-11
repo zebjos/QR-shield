@@ -10,6 +10,7 @@
  */
 
 import { API_BASE_URL } from '../config';
+import { computeLocalVerdict } from './localVerdict';
 
 export type VerdictStatus = 'safe' | 'unknown' | 'dangerous';
 
@@ -55,6 +56,9 @@ export interface Verdict {
   reportCount: number;
   threatIntelSources?: string[];
   trustedRank?: number | null;
+  /** True when the verdict was computed client-side because the backend was
+   *  unreachable. UI shows an "Offline mode" pill in that case. */
+  offline?: boolean;
   indicators: Indicator[];
 }
 
@@ -65,21 +69,10 @@ function randomReasonCode(): DangerReasonCode {
 }
 
 function fallbackVerdict(url: string): Verdict {
-  return {
-    status: 'unknown',
-    finalUrl: url,
-    host: null,
-    registrableDomain: null,
-    punycode: false,
-    reportCount: 0,
-    indicators: [
-      {
-        label: 'Status',
-        value: 'Backend unreachable',
-        attention: true,
-      },
-    ],
-  };
+  // Offline mode: compute everything we can without the backend
+  // (punycode, IP, HTTPS, shortener, payment-like) and label the network-
+  // only signals as "Offline". Never returns `safe`.
+  return computeLocalVerdict(url);
 }
 
 function applyForce(
