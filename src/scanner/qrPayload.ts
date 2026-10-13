@@ -96,22 +96,18 @@ function safeHost(url: string): string | null {
   }
 }
 
-// Rough eTLD+1 for display highlighting. Not a Public Suffix List, just a
-// small lookup for the common multi-part TLDs the demo might hit.
-const MULTIPART_TLDS = new Set([
-  'co.uk', 'co.jp', 'co.kr', 'co.nz', 'co.za', 'com.au', 'com.br',
-  'com.cn', 'com.mx', 'com.tr', 'ac.uk', 'gov.uk', 'org.uk',
-  'ne.jp', 'or.jp',
-]);
+// Public Suffix List with private suffixes enabled. Without
+// `allowPrivateDomains`, `paypal-login.github.io` would collapse to
+// `github.io`, and we'd bold "github.io" in the URL — making a hostile
+// subdomain look like it's hosted by GitHub itself. With it, the function
+// returns `paypal-login.github.io` so the user sees the actual actor's name
+// in bold.
+import { getDomain as tldtsGetDomain } from 'tldts';
 
 export function getRegistrableDomain(host: string): string {
-  const labels = host.toLowerCase().split('.');
-  if (labels.length < 2) return host;
-  const lastTwo = labels.slice(-2).join('.');
-  if (MULTIPART_TLDS.has(lastTwo) && labels.length >= 3) {
-    return labels.slice(-3).join('.');
-  }
-  return lastTwo;
+  return (
+    tldtsGetDomain(host, { allowPrivateDomains: true }) ?? host.toLowerCase()
+  );
 }
 
 export function splitUrlForDisplay(

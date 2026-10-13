@@ -1,5 +1,5 @@
 # Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
-
+.claude/
 # dependencies
 node_modules/
 
@@ -31,6 +31,7 @@ yarn-error.*
 *.pem
 
 # local env files
+.env
 .env*.local
 
 # typescript
@@ -39,3 +40,17 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# backend runtime
+backend/.venv/
+backend/__pycache__/
+backend/*.sqlite3
+backend/*.sqlite3-journal
+
+# EAS / mobile credentials
+credentials.json
+google-services.json
+GoogleService-Info.plist
+*.ipa
+*.apk
+*.aab

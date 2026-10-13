@@ -10,6 +10,11 @@ interface DebugSettingsValue {
   setForcedVerdict: (status: VerdictStatus | null) => void;
   forcedReasonCode: DangerReasonCode | null;
   setForcedReasonCode: (code: DangerReasonCode | null) => void;
+  /** When true, a safe URL opens automatically after a 500 ms flash.
+   *  When false, the user has to tap "Open" even on a safe verdict —
+   *  reverts to the always-confirm behaviour without a redeploy. */
+  safeAutoOpen: boolean;
+  setSafeAutoOpen: (v: boolean) => void;
 }
 
 const DebugSettingsContext = createContext<DebugSettingsValue | null>(null);
@@ -20,6 +25,7 @@ export function DebugSettingsProvider({ children }: { children: ReactNode }) {
   const [forcedReasonCode, setForcedReasonCode] = useState<DangerReasonCode | null>(
     null
   );
+  const [safeAutoOpen, setSafeAutoOpen] = useState(true);
 
   const value = useMemo<DebugSettingsValue>(
     () => ({
@@ -29,8 +35,10 @@ export function DebugSettingsProvider({ children }: { children: ReactNode }) {
       setForcedVerdict,
       forcedReasonCode,
       setForcedReasonCode,
+      safeAutoOpen,
+      setSafeAutoOpen,
     }),
-    [buttonVisible, forcedVerdict, forcedReasonCode]
+    [buttonVisible, forcedVerdict, forcedReasonCode, safeAutoOpen]
   );
 
   return (

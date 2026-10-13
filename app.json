@@ -7,20 +7,26 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "ios": {
+      "bundleIdentifier": "dev.eliasjhl.qrshield",
       "supportsTablet": true,
       "infoPlist": {
-        "NSCameraUsageDescription": "QR Shield needs camera access to scan QR codes."
+        "NSCameraUsageDescription": "QR Shield needs camera access to scan QR codes.",
+        "NSPhotoLibraryUsageDescription": "QR Shield reads QR codes from pictures you choose from your library.",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
+      "package": "dev.eliasjhl.qrshield",
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#111827",
         "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "permissions": ["android.permission.CAMERA"]
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -31,7 +37,19 @@
         {
           "cameraPermission": "QR Shield needs camera access to scan QR codes."
         }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "QR Shield reads QR codes from pictures you choose from your library."
+        }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "ff5c3d26-305d-496e-bee2-c0c071a1bba8"
+      }
+    },
+    "owner": "eliasjhl"
   }
 }

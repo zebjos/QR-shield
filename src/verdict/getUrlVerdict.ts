@@ -1,23 +1,19 @@
 /**
- * Verdict for a scanned URL.
+ * Verdict for a scanned URL — thin client over the Python backend.
  *
- * "safe"      — green  — checked and looks fine
- * "unknown"   — yellow — not checked yet / no signal either way
- * "dangerous" — red    — flagged; `reasonCode` says which specific red flag
- *                        was hit, `reason` is the one-line text for it
- *
- * This is the ONLY file that should change when the real reputation-check
- * backend is wired up. Everything else in the app just calls
- * `getUrlVerdict(url)` and renders whatever it returns.
+ * The backend owns all the real logic (RDAP, redirect resolve, punycode/IP
+ * detection, verdict rules, community report count). This file:
+ *   - Builds the HTTP request
+ *   - Honors the debug "force verdict" / "force reason" flags without hitting
+ *     the backend, so QA/demo can show every state deterministically
+ *   - Degrades to a safe "unknown" shape on network failure
  */
+
+import { API_BASE_URL } from '../config';
+import { computeLocalVerdict } from './localVerdict';
 
 export type VerdictStatus = 'safe' | 'unknown' | 'dangerous';
 
-/**
- * Specific red flags a real check could raise. Keep this list honest about
- * what the eventual backend can actually detect — each code should map to
- * a distinct, explainable signal, not just a different flavor of "bad."
- */
 export type DangerReasonCode =
   | 'brandLookalike'
   | 'newlyRegisteredDomain'
@@ -39,43 +35,64 @@ export const DANGER_REASON_CODES = Object.keys(
   DANGER_REASON_TEXT
 ) as DangerReasonCode[];
 
+export interface Indicator {
+  label: string;
+  value: string;
+  attention: boolean;
+}
+
 export interface Verdict {
   status: VerdictStatus;
-  /** Only set when status is "dangerous". */
   reasonCode?: DangerReasonCode;
-  /** One-line text for `reasonCode`, shown to the user. */
   reason?: string;
+  finalUrl: string;
+  host?: string | null;
+  registrableDomain?: string | null;
+  redirectedFrom?: string | null;
+  shortenerUsed?: string | null;
+  punycode: boolean;
+  paymentLike?: boolean;
+  domainAgeDays?: number | null;
+  reportCount: number;
+  threatIntelSources?: string[];
+  trustedRank?: number | null;
+  /** True when the verdict was computed client-side because the backend was
+   *  unreachable. UI shows an "Offline mode" pill in that case. */
+  offline?: boolean;
+  indicators: Indicator[];
 }
 
 function randomReasonCode(): DangerReasonCode {
-  return DANGER_REASON_CODES[Math.floor(Math.random() * DANGER_REASON_CODES.length)];
+  return DANGER_REASON_CODES[
+    Math.floor(Math.random() * DANGER_REASON_CODES.length)
+  ];
 }
 
-function dangerousVerdict(reasonCode: DangerReasonCode): Verdict {
-  return { status: 'dangerous', reasonCode, reason: DANGER_REASON_TEXT[reasonCode] };
+function fallbackVerdict(url: string): Verdict {
+  // Offline mode: compute everything we can without the backend
+  // (punycode, IP, HTTPS, shortener, payment-like) and label the network-
+  // only signals as "Offline". Never returns `safe`.
+  return computeLocalVerdict(url);
 }
 
-/**
- * PLACEHOLDER IMPLEMENTATION.
- * Returns a randomized verdict so the UI can be built and tested end-to-end
- * before the real URL reputation check exists.
- *
- * Swap this function's body for a real check (API call, on-device
- * heuristics, etc.) later — the signature and return type should stay the
- * same so callers don't need to change. Keep honoring `forcedStatus` /
- * `forcedReasonCode` even after that swap — they back the debug menu's
- * "simulate verdict" option, which stays useful for demos and QA once the
- * real check exists.
- */
-function hostIsPunycode(url: string): boolean {
-  try {
-    return new URL(url).hostname
-      .toLowerCase()
-      .split('.')
-      .some((l) => l.startsWith('xn--'));
-  } catch {
-    return false;
+function applyForce(
+  base: Verdict,
+  status: VerdictStatus,
+  reasonCode: DangerReasonCode | null | undefined
+): Verdict {
+  // Override only status + reason; KEEP backend indicators / host / etc.
+  // That way the debug menu still shows the real indicator rows (grey/orange
+  // dots) alongside the forced badge.
+  if (status === 'dangerous') {
+    const code = reasonCode ?? randomReasonCode();
+    return {
+      ...base,
+      status: 'dangerous',
+      reasonCode: code,
+      reason: DANGER_REASON_TEXT[code],
+    };
   }
+  return { ...base, status, reasonCode: undefined, reason: undefined };
 }
 
 export async function getUrlVerdict(
@@ -83,28 +100,47 @@ export async function getUrlVerdict(
   forcedStatus?: VerdictStatus | null,
   forcedReasonCode?: DangerReasonCode | null
 ): Promise<Verdict> {
+  let backend: Verdict;
+  try {
+    const res = await fetch(
+      `${API_BASE_URL}/check?url=${encodeURIComponent(url)}`
+    );
+    backend = res.ok ? ((await res.json()) as Verdict) : fallbackVerdict(url);
+  } catch {
+    backend = fallbackVerdict(url);
+  }
   if (forcedStatus) {
-    if (forcedStatus === 'dangerous') {
-      return dangerousVerdict(forcedReasonCode ?? randomReasonCode());
-    }
-    return { status: forcedStatus };
+    return applyForce(backend, forcedStatus, forcedReasonCode ?? null);
   }
+  return backend;
+}
 
-  // Local, high-confidence red flag: a punycode (xn--) label is almost always
-  // a homoglyph lookalike in the wild. Flag it before the random roll.
-  if (hostIsPunycode(url)) {
-    return dangerousVerdict('brandLookalike');
+export async function sendReport(url: string): Promise<number | null> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/report`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ url }),
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { count: number };
+    return data.count;
+  } catch {
+    return null;
   }
+}
 
-  const roll = Math.random();
-
-  if (roll < 0.34) {
-    return { status: 'safe' };
+export async function undoReport(url: string): Promise<number | null> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/report`, {
+      method: 'DELETE',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ url }),
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { count: number };
+    return data.count;
+  } catch {
+    return null;
   }
-
-  if (roll < 0.67) {
-    return { status: 'unknown' };
-  }
-
-  return dangerousVerdict(randomReasonCode());
 }
