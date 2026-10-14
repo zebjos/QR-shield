@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Linking,
   Pressable,
   StyleSheet,
@@ -9,6 +10,7 @@ import {
   type StyleProp,
   type ViewStyle,
 } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
 import Animated, {
   cubicBezier,
   FadeIn,
@@ -25,6 +27,7 @@ import {
   splitUrlForDisplay,
   type Payload,
 } from '../scanner/qrPayload';
+import { assessActionRisk } from '../scanner/actionRisk';
 import {
   getUrlVerdict,
   sendReport,
@@ -198,12 +201,24 @@ function NonUrlSheet({
     text: 'Plain text',
   }[payload.kind as Exclude<Payload['kind'], 'url'>];
 
+  const risk = useMemo(() => assessActionRisk(payload), [payload]);
+  const isDanger = risk.severity === 'danger';
+  const isWarning = risk.severity === 'warning';
+
   return (
     <>
       <View style={styles.kindPill}>
         <Text style={styles.kindPillText}>{kindLabel.toUpperCase()}</Text>
       </View>
       <Text style={styles.nonUrlTitle}>{describePayload(payload)}</Text>
+      {isDanger && risk.note ? (
+        <Text style={styles.actionWarning}>{risk.note}</Text>
+      ) : null}
+      {isWarning && risk.note ? (
+        <View style={styles.softWarningBox}>
+          <Text style={styles.softWarningText}>{risk.note}</Text>
+        </View>
+      ) : null}
       <NonUrlDetails payload={payload} />
       <View style={styles.buttonRow}>
         <PressableScale
@@ -215,10 +230,15 @@ function NonUrlSheet({
         </PressableScale>
         <PressableScale
           containerStyle={styles.btnFlex}
-          style={[styles.button, styles.openButton]}
+          style={[
+            styles.button,
+            isDanger ? styles.openButtonDanger : styles.openButton,
+          ]}
           onPress={onContinue}
         >
-          <Text style={styles.openButtonText}>Continue</Text>
+          <Text style={styles.openButtonText}>
+            {isDanger ? 'Continue anyway' : 'Continue'}
+          </Text>
         </PressableScale>
       </View>
     </>
@@ -333,8 +353,26 @@ export default function ResultScreen({ route, navigation }: Props) {
     }
     navigation.goBack();
   };
-  const handleContinue = () => {
+  const handleContinue = async () => {
     if (payload.kind === 'wifi') {
+      // No JS API lets us join Wi-Fi programmatically — surface the creds so
+      // the user can paste them into Settings in one tap.
+      const parts: string[] = [`SSID: ${payload.ssid}`];
+      if (payload.password) parts.push(`Password: ${payload.password}`);
+      try {
+        await Clipboard.setStringAsync(payload.password ?? payload.ssid);
+      } catch {}
+      Alert.alert(
+        'Wi-Fi credentials copied',
+        `${parts.join('\n')}\n\nOpen Settings → Wi-Fi and paste the password.`,
+        [
+          { text: 'Dismiss', style: 'cancel' },
+          {
+            text: 'Open Settings',
+            onPress: () => Linking.openSettings().catch(() => {}),
+          },
+        ]
+      );
       navigation.goBack();
       return;
     }
@@ -538,10 +576,19 @@ export default function ResultScreen({ route, navigation }: Props) {
                 </PressableScale>
                 <PressableScale
                   containerStyle={styles.btnFlex}
-                  style={[styles.button, styles.openButton]}
+                  style={[
+                    styles.button,
+                    verdict.status === 'dangerous'
+                      ? styles.openButtonDanger
+                      : styles.openButton,
+                  ]}
                   onPress={handleContinue}
                 >
-                  <Text style={styles.openButtonText}>Open Website</Text>
+                  <Text style={styles.openButtonText}>
+                    {verdict.status === 'dangerous'
+                      ? 'Open anyway'
+                      : 'Open Website'}
+                  </Text>
                 </PressableScale>
               </View>
             )}
@@ -900,6 +947,9 @@ const styles = StyleSheet.create({
   openButton: {
     backgroundColor: '#111',
   },
+  openButtonDanger: {
+    backgroundColor: C.red,
+  },
   openButtonText: {
     color: '#fff',
     fontSize: 16,
@@ -925,5 +975,28 @@ const styles = StyleSheet.create({
     color: C.label,
     lineHeight: 26,
     marginBottom: 4,
+  },
+  actionWarning: {
+    marginTop: 2,
+    marginBottom: 6,
+    fontSize: 14,
+    color: C.redText,
+    fontWeight: '500',
+    lineHeight: 19,
+  },
+  softWarningBox: {
+    marginTop: 2,
+    marginBottom: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 10,
+    backgroundColor: '#FFF4E5',
+    borderWidth: 1,
+    borderColor: '#F5D5A3',
+  },
+  softWarningText: {
+    fontSize: 13,
+    color: C.orangeText,
+    lineHeight: 18,
   },
 });

@@ -25,7 +25,9 @@ export function DebugSettingsProvider({ children }: { children: ReactNode }) {
   const [forcedReasonCode, setForcedReasonCode] = useState<DangerReasonCode | null>(
     null
   );
-  const [safeAutoOpen, setSafeAutoOpen] = useState(true);
+  // Default behaviour is "always ask" even on trusted/safe URLs — safer in
+  // UX terms. Toggle in the debug sheet to flip to auto-open.
+  const [safeAutoOpen, setSafeAutoOpen] = useState(false);
 
   const value = useMemo<DebugSettingsValue>(
     () => ({
